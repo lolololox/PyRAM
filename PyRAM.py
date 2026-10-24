@@ -176,3 +176,6 @@ class MemoryPythonFolder:
         except KeyError:
             raise KeyError(f"File '{path}' not found")
 
+class MemoryFolder:
+    def __init__(self):
+        pass
