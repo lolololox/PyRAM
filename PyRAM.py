@@ -1,4 +1,5 @@
 from typing import Any, Set
+from pathlib import Path
 
 class MemoryObject:
     def __init__(self):
@@ -63,8 +64,115 @@ class MemoryObject:
         else:
             raise RuntimeError(f"Objects cannot be compared, {object1}:{type(object1)} and {object2}:{type(object2)}")
 
-
-class MemoryFolder:
+class MemoryPythonFolder:
     def __init__(self):
-        pass
+        self.filesystem = {}
+        self.default_disk = "C"
+
+    def write(self, path: str, value=None) -> None:
+        disk = path.split(":")[0]
+
+        if len(disk) > 1:
+            raise RuntimeError("Pls enter disk, for example 'C:/example/popato.txt'")
+        
+        path_without_disk = path.split(":")[1]
+        blocked_symbol = {":", ";", ","}
+        clean_path = Path(path)
+        list_of_parts = clean_path.parts
+        # file_name = clean_path.name
+
+        if any(symbol in path_without_disk for symbol in blocked_symbol):
+            raise RuntimeError("Pls do not use ':', ';', ',' in path, for example 'C:/example/popato.txt'")
+
+        current = self.filesystem
+
+        for part in list_of_parts[:-1]:
+            if current == part:
+                current = current[part]
+                continue
+            current = current.setdefault(part, {})
+
+        if list_of_parts[-1] is not None and value is not None:
+            current[list_of_parts[-1]] = value
+        elif list_of_parts[-1] is not None and value is None:
+            current[list_of_parts[-1]] = {}
+
+        return self.filesystem
+
+    def read(self, path: str) -> Any:
+        disk = path.split(":")[0]
+
+        if len(disk) > 1:
+            raise RuntimeError("Pls enter disk, for example 'C:/example/popato.txt'")
+        
+        path_without_disk = path.split(":")[1]
+        blocked_symbol = {":", ";", ","}
+        clean_path = Path(path)
+        list_of_parts = clean_path.parts
+
+        if any(symbol in path_without_disk for symbol in blocked_symbol):
+            raise RuntimeError("Pls do not use ':', ';', ',' in path, for example 'C:/example/popato.txt'")
+
+        current = self.filesystem
+
+        for part in list_of_parts:
+            try:
+                current = current[part]
+            except(KeyError):
+                raise KeyError(f"File {path} not found")
+
+        return current
+
+    def listdir(self, path: str) -> Any:
+        disk = path.split(":")[0]
+
+        if len(disk) > 1:
+            raise RuntimeError("Pls enter disk, for example 'C:/example/popato.txt'")
+        
+        path_without_disk = path.split(":")[1]
+        blocked_symbol = {":", ";", ","}
+        clean_path = Path(path)
+        list_of_parts = clean_path.parts
+
+        if any(symbol in path_without_disk for symbol in blocked_symbol):
+            raise RuntimeError("Pls do not use ':', ';', ',' in path, for example 'C:/example/popato.txt'")
+
+        current = self.filesystem
+
+        for part in list_of_parts:
+            try:
+                current = current[part]
+            except(KeyError):
+                raise KeyError(f"File {path} not found")
+
+        if isinstance(current, str):
+            raise AttributeError("Path must end by folder, not file!")
+        return list(current.keys())
+
+    def delete(self, path: str) -> None:
+        disk = path.split(":")[0]
+
+        if len(disk) > 1:
+            raise RuntimeError("Pls enter disk, for example 'C:/example/popato.txt'")
+        
+        path_without_disk = path.split(":")[1]
+        blocked_symbol = {":", ";", ","}
+        clean_path = Path(path)
+        list_of_parts = clean_path.parts
+
+        if any(symbol in path_without_disk for symbol in blocked_symbol):
+            raise RuntimeError("Pls do not use ':', ';', ',' in path, for example 'C:/example/popato.txt'")
+
+        current = self.filesystem
+
+        for part in list_of_parts[:-1]:
+            try:
+                current = current[part]
+            except KeyError:
+                raise KeyError(f"Path '{path}' not found")
+
+        try:
+            del current[list_of_parts[-1]]
+        except KeyError:
+            raise KeyError(f"File '{path}' not found")
 
