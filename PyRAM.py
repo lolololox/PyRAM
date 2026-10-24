@@ -1,5 +1,9 @@
 from typing import Any, Set
 from pathlib import Path
+try:
+    import winfspy
+except(ImportError, ImportWarning):
+    raise ImportError("Pls download winfspy on site https://winfsp.dev/")
 
 class MemoryObject:
     def __init__(self):
