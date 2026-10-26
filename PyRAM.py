@@ -1,8 +1,25 @@
+from exceptions import (
+    PyRAMError, ComponentNotInstalledError,
+    DiskAlreadyExistsError, DiskNotFoundError,
+    DiskCreationError, IncorrectSymbolInPath,
+    NoDiskInPath, FolderNotFile, FileNotFound,
+    PathNotFound, NotEnoughRAMError,
+    DiskNotAlreadyExistsError, FolderAlreadyExistsError,
+    FolderNotAlreadyExistsError, ProcessAlreadyExistsError,
+    ProcessNotAlreadyExistsError, WindowsDiskDeleteError,
+    ZeroOrNegativeRAMError, FailedToFormatDisk
+)
 from typing import Any
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import subprocess
 import sys
 import os
+import platform
+from warnings import deprecated
+
+
+if platform.system() != "Windows":
+    raise RuntimeError("Library only for Windows")
 
 try:
     import psutil
@@ -97,7 +114,7 @@ class MemoryPythonFolder:
         disk = path.split(":")[0]
 
         if len(disk) > 1:
-            raise RuntimeError("Pls enter disk, for example 'C:/example/popato.txt'")
+            raise NoDiskInPath("Pls enter disk, for example 'C:/example/popato.txt'")
         
         path_without_disk = path.split(":")[1]
         blocked_symbol = {":", ";", ","}
@@ -106,7 +123,7 @@ class MemoryPythonFolder:
         # file_name = clean_path.name
 
         if any(symbol in path_without_disk for symbol in blocked_symbol):
-            raise RuntimeError("Pls do not use ':', ';', ',' in path, for example 'C:/example/popato.txt'")
+            raise IncorrectSymbolInPath("Pls do not use ':', ';', ',' in path, for example 'C:/example/popato.txt'")
 
         current = self.filesystem
 
@@ -127,7 +144,7 @@ class MemoryPythonFolder:
         disk = path.split(":")[0]
 
         if len(disk) > 1:
-            raise RuntimeError("Pls enter disk, for example 'C:/example/popato.txt'")
+            raise NoDiskInPath("Pls enter disk, for example 'C:/example/popato.txt'")
         
         path_without_disk = path.split(":")[1]
         blocked_symbol = {":", ";", ","}
@@ -135,7 +152,7 @@ class MemoryPythonFolder:
         list_of_parts = clean_path.parts
 
         if any(symbol in path_without_disk for symbol in blocked_symbol):
-            raise RuntimeError("Pls do not use ':', ';', ',' in path, for example 'C:/example/popato.txt'")
+            raise IncorrectSymbolInPath("Pls do not use ':', ';', ',' in path, for example 'C:/example/popato.txt'")
 
         current = self.filesystem
 
@@ -143,7 +160,7 @@ class MemoryPythonFolder:
             try:
                 current = current[part]
             except(KeyError):
-                raise KeyError(f"File {path} not found")
+                raise FileNotFound(f"File {path} not found")
 
         return current
 
@@ -151,7 +168,7 @@ class MemoryPythonFolder:
         disk = path.split(":")[0]
 
         if len(disk) > 1:
-            raise RuntimeError("Pls enter disk, for example 'C:/example/popato.txt'")
+            raise NoDiskInPath("Pls enter disk, for example 'C:/example/popato.txt'")
         
         path_without_disk = path.split(":")[1]
         blocked_symbol = {":", ";", ","}
@@ -159,7 +176,7 @@ class MemoryPythonFolder:
         list_of_parts = clean_path.parts
 
         if any(symbol in path_without_disk for symbol in blocked_symbol):
-            raise RuntimeError("Pls do not use ':', ';', ',' in path, for example 'C:/example/popato.txt'")
+            raise IncorrectSymbolInPath("Pls do not use ':', ';', ',' in path, for example 'C:/example/popato.txt'")
 
         current = self.filesystem
 
@@ -167,17 +184,18 @@ class MemoryPythonFolder:
             try:
                 current = current[part]
             except(KeyError):
-                raise KeyError(f"File {path} not found")
+                raise FileNotFound(f"File {path} not found")
 
         if isinstance(current, str):
-            raise AttributeError("Path must end by folder, not file!")
+            raise FolderNotFile("Path must end by folder, not file!")
+
         return list(current.keys())
 
     def delete(self, path: str) -> None:
         disk = path.split(":")[0]
 
         if len(disk) > 1:
-            raise RuntimeError("Pls enter disk, for example 'C:/example/popato.txt'")
+            raise NoDiskInPath("Pls enter disk, for example 'C:/example/popato.txt'")
         
         path_without_disk = path.split(":")[1]
         blocked_symbol = {":", ";", ","}
@@ -185,7 +203,7 @@ class MemoryPythonFolder:
         list_of_parts = clean_path.parts
 
         if any(symbol in path_without_disk for symbol in blocked_symbol):
-            raise RuntimeError("Pls do not use ':', ';', ',' in path, for example 'C:/example/popato.txt'")
+            raise IncorrectSymbolInPath("Pls do not use ':', ';', ',' in path, for example 'C:/example/popato.txt'")
 
         current = self.filesystem
 
@@ -193,12 +211,12 @@ class MemoryPythonFolder:
             try:
                 current = current[part]
             except KeyError:
-                raise KeyError(f"Path '{path}' not found")
+                raise PathNotFound(f"Path '{path}' not found")
 
         try:
             del current[list_of_parts[-1]]
         except KeyError:
-            raise KeyError(f"File '{path}' not found")
+            raise FileNotFound(f"File '{path}' not found")
 
 class MemoryStorage:
     def __init__(self):
@@ -210,47 +228,89 @@ class MemoryStorage:
             drive: str = i.rstrip(r"\\")
             self.disks[drive] = None
 
-        print(self.disks)
-
     def get_all_drives(self) -> list:
         drives = os.listdrives()
         return drives
 
     def create_disk_ramdisk(self, disk_name: str = "Z:", memory_mb_size: int = 2048, file_system: str = "ntfs") -> bool:
+        disk_name = disk_name.upper()
         if ramdisk_installed == False:
-            raise ModuleNotFoundError("ramdisk not installed!")
+            raise ComponentNotInstalledError("ramdisk not installed!")
 
         if disk_name in self.disks:
-            raise RuntimeError(f"Disk: {disk_name.rstrip(":")} already exists")
+            raise DiskAlreadyExistsError(f"Disk: '{disk_name.rstrip(":")}' already exists")
 
         if psutil_instaled == True:
             bytes_val = psutil.virtual_memory().total
             mb_val = bytes_val / (1024 ** 2)
 
             if memory_mb_size > mb_val:
-                raise RuntimeError("You cannot specify more RAM than you actually have!")
+                raise NotEnoughRAMError("You cannot specify more RAM than you actually have!")
 
         elif psutil_instaled == False:
             print("Warning: psutil not installed, can not check RAM restrictions")
 
-        success = create_hd(size_in_megabyte=memory_mb_size, drive_letter=disk_name, fs=file_system)
+        if memory_mb_size <= 0:
+            raise ZeroOrNegativeRAMError(f"RAM is zero or negative: '{memory_mb_size}'")
+
+        try:
+            success = create_hd(size_in_megabyte=memory_mb_size, drive_letter=disk_name, fs=file_system)
+        except Exception as e:
+            raise PyRAMError(f"Somethink went wrong!\n{e}")
+
+        if not self.format_ramdisk(disk_name, file_system):
+            print(f"Warning: Failed to format RAM disk '{disk_name.rstrip(":")}'\nYou need to run the process as an administrator.")
 
         self.disks[disk_name] = success
 
         return True if success else False
 
-    def remove_disk_ramdisk(self, disk_name: str, forse: bool = True) -> bool:
+    def remove_disk_ramdisk(self, disk_name: str, force: bool = True) -> bool:
+        disk_name = disk_name.upper()
         if ramdisk_installed == False:
-            raise ModuleNotFoundError("ramdisk not installed!")
+            raise ComponentNotInstalledError("ramdisk not installed!")
 
         if not disk_name in self.disks:
-            raise RuntimeError(f"Disk: {disk_name.rstrip(":")} not already exists")
+            raise DiskNotAlreadyExistsError(f"Disk: '{disk_name.rstrip(":")}' not already exists")
 
-        success = remove_hd(drive_letter=disk_name, force=forse)
+        sys_drive = os.environ.get('SystemDrive')
+
+        if sys_drive == disk_name:
+            raise WindowsDiskDeleteError("You can not delete main Windows disk")
+
+        try:
+            success = remove_hd(drive_letter=disk_name, force=force)
+        except Exception as e:
+            raise PyRAMError(f"Somethink went wrong!\n{e}")
 
         del self.disks[disk_name]
 
         return True if success else False
+
+    def format_ramdisk(self, disk_name: str, file_system: str = "NTFS") -> bool:
+        disk_name = disk_name.upper()
+
+        if not disk_name.endswith(":"):
+            disk_name += ":"
+
+        if file_system.upper() not in {"NTFS", "FAT32", "EXFAT"}:
+            raise ValueError("Unsupported file system")
+
+        result = subprocess.run(
+            [
+                "format.com",
+                disk_name,
+                f"/FS:{file_system.upper()}",
+                "/Q",
+                "/Y",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            shell=False,
+        )
+
+        return result.returncode == 0
 
     def get_all_disks(self) -> dict:
         return self.disks
@@ -261,12 +321,13 @@ class MemoryStorage:
     def get_all_processes(self) -> dict:
         return self.process
 
+    @deprecated("Experimental method, not stable. Please use ramdisk methods")
     def create_disk_winfspy(self, disk_name: str = "Z:") -> subprocess.Popen:
         if winfspy_installed == False:
-            raise ModuleNotFoundError("winfspy not installed!")
+            raise ComponentNotInstalledError("winfspy not installed!")
 
         if disk_name in self.disks:
-            raise RuntimeError(f"Disk: {disk_name.rstrip(":")} already exists")
+            raise DiskAlreadyExistsError(f"Disk: '{disk_name.rstrip(":")}' already exists")
 
         process = subprocess.Popen([
             sys.executable,
@@ -278,14 +339,15 @@ class MemoryStorage:
 
         return process
 
-    def old_create_folder_winfspy(self, path: str) -> subprocess.Popen:
+    @deprecated("Experimental method, not stable. Please use ramdisk methods")
+    def create_folder_winfspy(self, path: str) -> subprocess.Popen:
         if winfspy_installed == False:
-            raise ModuleNotFoundError("winfspy not installed!")
+            raise ComponentNotInstalledError("winfspy not installed!")
 
         clead_path = Path(path)
 
         if clead_path in self.folders:
-            raise RuntimeError(f"Folder: {path} already exists")
+            raise FolderAlreadyExistsError(f"Folder: {path} already exists")
 
         process = subprocess.Popen([
             sys.executable,
@@ -297,12 +359,13 @@ class MemoryStorage:
 
         return process
 
+    @deprecated("Experimental method, not stable. Please use ramdisk methods")
     def remove_storage_winfspy(self, pointer: str) -> bool:
         if winfspy_installed == False:
-            raise ModuleNotFoundError("winfspy not installed!")
+            raise ComponentNotInstalledError("winfspy not installed!")
 
         if pointer not in self.disks and pointer not in self.folders:
-            raise RuntimeError(f"Process: {pointer.rstrip(":")} not already exists")
+            raise ProcessNotAlreadyExistsError(f"Process: {pointer.rstrip(":")} not already exists")
 
         process: subprocess.Popen = self.process.get(pointer)
 
@@ -314,5 +377,3 @@ class MemoryStorage:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
-
-
