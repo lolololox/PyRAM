@@ -62,7 +62,7 @@ storage.remove_disk_ramdisk(disk_name="X:")
 
 ## License
 
-Not specified yet.
+MIT
 
 ## Documentation
 
