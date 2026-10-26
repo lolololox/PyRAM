@@ -2,10 +2,10 @@
 
 A Python library for managing RAM disks on Windows. Based on ImDisk with RamDisk and WinFs with WinFsPy.
 Project target it is:
+
 1. Create more simple API than original library
 2. Do more stable than original library
 3. Give additional functional than original library
-PyRAM my first library, i will try do it good
 
 ## Features
 
@@ -13,6 +13,8 @@ PyRAM my first library, i will try do it good
 - Remove RAM disks.
 - Track disks managed by a `MemoryStorage` instance.
 - Simple API with minimal setup.
+- Format RAM disks
+- Virtual in-memory file system
 
 ## Requirements
 
@@ -21,7 +23,7 @@ PyRAM my first library, i will try do it good
 - ImDisk
 - RamDisk
 - WinFs(Not strictly required, but necessary for the library to additional function)
-- WinFsPy(Not strictly required, but necessary for the library to additionalfunction)
+- WinFsPy(Not strictly required, but necessary for the library to additional features)
 - Python package dependencies required by PyRAM
 
 RAM disk operations may require administrator privileges.
@@ -38,7 +40,7 @@ from PyRAM import MemoryStorage
 storage = MemoryStorage()
 
 # Create disk without parameters
-storage.create_disk_ramdisk() # uses how default parameters disk_name = "Z:", memory_mb_size = 2048, file_system = "ntfs"
+storage.create_disk_ramdisk() # uses default parameters disk_name = "Z:", memory_mb_size = 2048, file_system = "ntfs"
 
 # Create a 512 MB RAM disk
 storage.create_disk_ramdisk(
@@ -49,8 +51,6 @@ storage.create_disk_ramdisk(
 
 # Remove the RAM disk
 storage.remove_disk_ramdisk(disk_name="X:")
-# Remove disk without parameter
-storage.remove_disk_ramdisk() # uses how default parameter disk_name="Z:"
 ```
 
 ## Usage Notes
@@ -63,3 +63,36 @@ storage.remove_disk_ramdisk() # uses how default parameter disk_name="Z:"
 ## License
 
 Not specified yet.
+
+## Documentation
+
+- classes
+
+1. MemoryObject. Just dict with dicts
+2. MemoryPythonFolder. Virtual file system, where you can save only string data types
+3. MemoryStorage. Class where access create folders and disks in ram and see it in explorer
+
+### MemoryObject methods
+
+1. write. Save value
+2. read. Get value
+3. delete. delete value
+4. object_sum/object_sub/object_div/object_mul/object_equal. Operations with objects
+
+### MemoryPythonFolder methods
+
+1. write. Save value
+2. read. Get value
+3. listdir. Get list of folders
+4. delete. Delete value
+
+### MemoryStorage methods
+
+1. get_all_drives. Get all drives
+2. create_disk_ramdisk. Create disk in RAM using RamDisk
+3. remove_disk_ramdisk. Delete disk, that created using RamDisk
+4. format_ramdisk. Format disk
+5. get_all_disks/get_all_folders/get_all_processes. Get all disks/folders/processes
+6. create_disk_winfspy. Create disk in RAM using WinFsPy
+7. create_folder_winfspy. Create folder in RAM using WinFsPy
+8. remove_storage_winfspy. Remove storage, that created using WinFsPy
