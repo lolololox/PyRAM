@@ -7,7 +7,8 @@ from exceptions import (
     DiskNotAlreadyExistsError, FolderAlreadyExistsError,
     FolderNotAlreadyExistsError, ProcessAlreadyExistsError,
     ProcessNotAlreadyExistsError, WindowsDiskDeleteError,
-    ZeroOrNegativeRAMError, FailedToFormatDisk
+    ZeroOrNegativeRAMError, FailedToFormatDisk,
+    WindowsDiskFormatError
 )
 from typing import Any
 from pathlib import Path, PureWindowsPath
@@ -292,6 +293,11 @@ class MemoryStorage:
 
         if not disk_name.endswith(":"):
             disk_name += ":"
+
+        sys_drive = os.environ.get('SystemDrive')
+
+        if sys_drive == disk_name:
+            raise WindowsDiskFormatError("You can not format main Windows disk")
 
         if file_system.upper() not in {"NTFS", "FAT32", "EXFAT"}:
             raise ValueError("Unsupported file system")

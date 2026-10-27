@@ -49,6 +49,9 @@ class ProcessNotAlreadyExistsError(PyRAMError):
 class WindowsDiskDeleteError(PyRAMError):
     """Windows disk deletion error"""
 
+class WindowsDiskFormatError(PyRAMError):
+    """Windows disk formattion error"""
+
 class ZeroOrNegativeRAMError(PyRAMError):
     """Zero or negative RAM."""
 
