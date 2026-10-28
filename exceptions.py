@@ -57,3 +57,9 @@ class ZeroOrNegativeRAMError(PyRAMError):
 
 class FailedToFormatDisk(PyRAMError):
     """Disk formatting error"""
+
+class ForeignDiskError(PyRAMError):
+    """Not PyRAM created"""
+
+class ImputError(PyRAMError):
+    """incorrect answer"""

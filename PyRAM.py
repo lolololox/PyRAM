@@ -8,7 +8,7 @@ from exceptions import (
     FolderNotAlreadyExistsError, ProcessAlreadyExistsError,
     ProcessNotAlreadyExistsError, WindowsDiskDeleteError,
     ZeroOrNegativeRAMError, FailedToFormatDisk,
-    WindowsDiskFormatError
+    WindowsDiskFormatError, ForeignDiskError, ImputError
 )
 from typing import Any
 from pathlib import Path, PureWindowsPath
@@ -18,6 +18,7 @@ import os
 import platform
 from warnings import deprecated
 
+MARKER = ".pyram_owned"
 
 if platform.system() != "Windows":
     raise RuntimeError("Library only for Windows")
@@ -225,16 +226,48 @@ class MemoryStorage:
         self.folders = {}
         self.process = {}
 
-        for i in self.get_all_drives():
-            drive: str = i.rstrip(r"\\")
-            self.disks[drive] = None
+        for d in self.get_all_drives():
+            drive = d.rstrip("\\")
+            self.disks[drive] = "Record restored, between sessions" if self._is_owned(drive) else None
+
+    def _is_owned(self, drive: str) -> bool:
+        try:
+            return os.path.isfile(os.path.join(drive + "\\", MARKER))
+        except OSError:
+            return False
+
+    def check_disk_formatted(self, disk_name: str) -> bool:
+        if psutil_instaled == False:
+            raise ComponentNotInstalledError("Psutil not installed, please do it")
+
+        disk_name = self.__normalizate_disk_name(disk_name)
+
+        partitions = psutil.disk_partitions(all=True)
+        
+        for p in partitions:
+            if p.device.startswith(disk_name) or p.mountpoint.startswith(disk_name):
+                if p.fstype and p.fstype.upper() != 'RAW':
+                    return True
+                else:
+                    return False
+                    
+        return False
+
+    def __normalizate_disk_name(self, name: str) -> str:
+        name = name.upper()
+
+        if not name.endswith(":"):
+            name += ":"
+
+        return name
 
     def get_all_drives(self) -> list:
         drives = os.listdrives()
         return drives
 
     def create_disk_ramdisk(self, disk_name: str = "Z:", memory_mb_size: int = 2048, file_system: str = "ntfs") -> bool:
-        disk_name = disk_name.upper()
+        disk_name = self.__normalizate_disk_name(disk_name)
+
         if ramdisk_installed == False:
             raise ComponentNotInstalledError("ramdisk not installed!")
 
@@ -259,17 +292,36 @@ class MemoryStorage:
         except Exception as e:
             raise PyRAMError(f"Somethink went wrong!\n{e}")
 
-        if not self.format_ramdisk(disk_name, file_system):
+        success_code = bool(success)
+
+        if success_code:
+            self.disks[disk_name] = success
+
+        if not self.format_ramdisk(disk_name, file_system, forse_check=True):
             print(f"Warning: Failed to format RAM disk '{disk_name.rstrip(":")}'\nYou need to run the process as an administrator.")
+        else:
+            Path(disk_name + "\\", MARKER).write_text("created by PyRAM")
 
-        self.disks[disk_name] = success
+        return success_code
 
-        return True if success else False
+    def remove_disk_ramdisk(self, disk_name: str, force: bool = True, forse_check: bool = False) -> bool:
+        disk_name = self.__normalizate_disk_name(disk_name)
 
-    def remove_disk_ramdisk(self, disk_name: str, force: bool = True) -> bool:
-        disk_name = disk_name.upper()
         if ramdisk_installed == False:
             raise ComponentNotInstalledError("ramdisk not installed!")
+
+        if self.disks.get(disk_name) == None:
+            if not self.check_disk_formatted(disk_name=disk_name) and forse_check == False:
+                accept = input(f"Disk not formatted, detele it? n | y ")
+                if accept.lower() == "n":
+                    return
+                elif accept.lower() == "y":
+                    pass
+                else:
+                    raise ImportError("Please input correct answer")
+
+            else:
+                raise ForeignDiskError(f"Disk {disk_name.rstrip(":")} was not created by PyRAM")
 
         if not disk_name in self.disks:
             raise DiskNotAlreadyExistsError(f"Disk: '{disk_name.rstrip(":")}' not already exists")
@@ -284,20 +336,33 @@ class MemoryStorage:
         except Exception as e:
             raise PyRAMError(f"Somethink went wrong!\n{e}")
 
-        del self.disks[disk_name]
+        success_code = bool(success)
 
-        return True if success else False
+        if success_code:
+            del self.disks[disk_name]
 
-    def format_ramdisk(self, disk_name: str, file_system: str = "NTFS") -> bool:
-        disk_name = disk_name.upper()
+        return success_code
 
-        if not disk_name.endswith(":"):
-            disk_name += ":"
+    def format_ramdisk(self, disk_name: str, file_system: str = "NTFS", forse_check: bool = False) -> bool:
+        disk_name = self.__normalizate_disk_name(disk_name)
 
         sys_drive = os.environ.get('SystemDrive')
 
         if sys_drive == disk_name:
             raise WindowsDiskFormatError("You can not format main Windows disk")
+
+        if self.disks.get(disk_name) == None:
+            if not self.check_disk_formatted(disk_name=disk_name) and forse_check == False:
+                accept = input(f"Disk not formatted, detele it? n | y ")
+                if accept.lower() == "n":
+                    return
+                elif accept.lower() == "y":
+                    pass
+                else:
+                    raise ImportError("Please input correct answer")
+
+            else:
+                raise ForeignDiskError(f"Disk {disk_name.rstrip(":")} was not created by PyRAM")
 
         if file_system.upper() not in {"NTFS", "FAT32", "EXFAT"}:
             raise ValueError("Unsupported file system")
@@ -367,6 +432,9 @@ class MemoryStorage:
 
     @deprecated("Experimental method, not stable. Please use ramdisk methods")
     def remove_storage_winfspy(self, pointer: str) -> bool:
+        if len(pointer) <= 2:
+            pointer = self.__normalizate_disk_name(pointer)
+
         if winfspy_installed == False:
             raise ComponentNotInstalledError("winfspy not installed!")
 
@@ -383,3 +451,8 @@ class MemoryStorage:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
+
+        if len(pointer) >= 2:
+            del self.folders[pointer]
+        else:
+            del self.disks[pointer]
