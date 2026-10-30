@@ -11,14 +11,18 @@ from exceptions import (
     WindowsDiskFormatError, ForeignDiskError, ImputError
 )
 from typing import Any
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 import subprocess
 import sys
 import os
 import platform
 from warnings import deprecated
+import warnings
+from dataclasses import dataclass
+import ctypes
 
 MARKER = ".pyram_owned"
+FILE_READ_ONLY_VOLUME = 0x00080000
 
 if platform.system() != "Windows":
     raise RuntimeError("Library only for Windows")
@@ -33,7 +37,7 @@ try:
     import winfspy
     winfspy_installed = True
 except(ImportError, ImportWarning):
-    print("Warning: winfspy not installed!\nPls download winfspy on site https://winfsp.dev/ and download library winfspy.")
+    warnings.warn("Warning: winfspy not installed!\nPls download winfspy on site https://winfsp.dev/ and download library winfspy.", RuntimeWarning)
     winfspy_installed = False
 
 try:
@@ -41,7 +45,7 @@ try:
     from ramdisk import create_hd, remove_hd
     ramdisk_installed = True
 except(ImportError, ImportWarning):
-    print("Warning: ramdisk not installed!\nPls download ramdisk")
+    warnings.warn("Warning: ramdisk not installed!\nPls download ramdisk", RuntimeWarning)
     ramdisk_installed = False
 
 class MemoryObject:
@@ -265,11 +269,103 @@ class MemoryStorage:
         drives = os.listdrives()
         return drives
 
+    def get_windows_disk(self) -> str:
+        return os.environ.get('SystemDrive')
+
+    def get_disk_info(self, disk_name: str) -> dict:
+        disk_name = self.__normalizate_disk_name(name=disk_name)
+
+        owner = None
+        is_formatted = None
+        total_bytes = None
+        used_bytes = None
+        free_bytes = None
+        used_perstange = None
+        partitions = None
+        fs_type = None
+        mountpoint = None
+        opts = None
+
+        try:
+            disk_value = self.disks[disk_name]
+        except(KeyError):
+            raise DiskNotAlreadyExistsError(f"Disk: '{disk_name.rstrip(":")}' not already exists")
+
+        if self.get_windows_disk() == disk_name:
+            owner = "System"
+        elif disk_value is None or not self.check_disk_formatted(disk_name=disk_name):
+            owner = "Unknown"
+        elif isinstance(disk_value, subprocess.Popen) or self._is_owned(drive=disk_name):
+            owner = "PyRAM"
+
+        is_formatted = self.check_disk_formatted(disk_name=disk_name)
+        
+        if is_formatted and psutil_instaled:
+            try:
+                usage = psutil.disk_usage(disk_name)
+
+                total_bytes = usage.total
+                used_bytes = usage.used
+                free_bytes = usage.free
+                used_perstange = usage.percent
+            except:
+                pass
+
+        elif not psutil_instaled:
+            warnings.warn("Psutil not installed, some data may be unavailable")
+
+        if psutil_instaled:
+            partitions = psutil.disk_partitions(all=True)
+
+            for p in partitions:
+                if p.device.upper().rstrip(r"\\") == disk_name:
+                    try:
+                        fs_type = p.fstype
+                        mountpoint = p.mountpoint
+                        opts = p.opts
+                    except:
+                        pass
+
+        return DiskInfo(drive=disk_name, owner=owner,is_formatted=is_formatted, drive_opts=opts, fs=fs_type, label=self.get_drive_label(drive_letter=disk_name), 
+                        total_bytes=total_bytes, used_bytes=used_bytes, free_bytes=free_bytes, used_percent=used_perstange,
+                        readonly=self.is_drive_readonly(drive_letter=disk_name), mountpoint=mountpoint)
+
+    def get_drive_label(self, drive_letter: str) -> str:
+        path = f"{drive_letter.rstrip('\\').rstrip(':')}:\\"
+        
+        volume_name_buffer = ctypes.create_unicode_buffer(260)
+        
+        success = ctypes.windll.kernel32.GetVolumeInformationW(
+            path,
+            volume_name_buffer,
+            len(volume_name_buffer),
+            None, None, None, None, 0
+        )
+        
+        if success:
+            return volume_name_buffer.value or "Local disk"
+        else:
+            return "Unknown disk"
+
+    def is_drive_readonly(self, drive_letter: str) -> bool:
+        path = f"{drive_letter.rstrip('\\').rstrip(':')}:\\"
+        
+        flags = ctypes.c_ulong(0)
+        
+        success = ctypes.windll.kernel32.GetVolumeInformationW(
+            path, None, 0, None, None, ctypes.byref(flags), None, 0
+        )
+        
+        if success:
+            return bool(flags.value & FILE_READ_ONLY_VOLUME)
+        else:
+            return None
+
     def create_disk_ramdisk(self, disk_name: str = "Z:", memory_mb_size: int = 2048, file_system: str = "ntfs") -> bool:
         disk_name = self.__normalizate_disk_name(disk_name)
 
         if ramdisk_installed == False:
-            raise ComponentNotInstalledError("ramdisk not installed!")
+            raise ComponentNotInstalledError("RamDisk not installed!")
 
         if disk_name in self.disks:
             raise DiskAlreadyExistsError(f"Disk: '{disk_name.rstrip(":")}' already exists")
@@ -282,7 +378,7 @@ class MemoryStorage:
                 raise NotEnoughRAMError("You cannot specify more RAM than you actually have!")
 
         elif psutil_instaled == False:
-            print("Warning: psutil not installed, can not check RAM restrictions")
+            warnings.warn("Psutil not installed, can not check RAM restrictions", RuntimeWarning)
 
         if memory_mb_size <= 0:
             raise ZeroOrNegativeRAMError(f"RAM is zero or negative: '{memory_mb_size}'")
@@ -298,7 +394,7 @@ class MemoryStorage:
             self.disks[disk_name] = success
 
         if not self.format_ramdisk(disk_name, file_system, forse_check=True):
-            print(f"Warning: Failed to format RAM disk '{disk_name.rstrip(":")}'\nYou need to run the process as an administrator.")
+            warnings.warn(f"Failed to format RAM disk '{disk_name.rstrip(":")}'\nYou need to run the process as an administrator.", RuntimeWarning)
         else:
             Path(disk_name + "\\", MARKER).write_text("created by PyRAM")
 
@@ -308,7 +404,7 @@ class MemoryStorage:
         disk_name = self.__normalizate_disk_name(disk_name)
 
         if ramdisk_installed == False:
-            raise ComponentNotInstalledError("ramdisk not installed!")
+            raise ComponentNotInstalledError("RamDisk not installed!")
 
         if self.disks.get(disk_name) == None:
             if not self.check_disk_formatted(disk_name=disk_name) and forse_check == False:
@@ -318,7 +414,10 @@ class MemoryStorage:
                 elif accept.lower() == "y":
                     pass
                 else:
-                    raise ImportError("Please input correct answer")
+                    raise ImputError("Please input correct answer")
+
+            elif not self.check_disk_formatted(disk_name=disk_name) and forse_check == True:
+                pass
 
             else:
                 raise ForeignDiskError(f"Disk {disk_name.rstrip(":")} was not created by PyRAM")
@@ -326,7 +425,7 @@ class MemoryStorage:
         if not disk_name in self.disks:
             raise DiskNotAlreadyExistsError(f"Disk: '{disk_name.rstrip(":")}' not already exists")
 
-        sys_drive = os.environ.get('SystemDrive')
+        sys_drive = self.get_windows_disk()
 
         if sys_drive == disk_name:
             raise WindowsDiskDeleteError("You can not delete main Windows disk")
@@ -346,7 +445,7 @@ class MemoryStorage:
     def format_ramdisk(self, disk_name: str, file_system: str = "NTFS", forse_check: bool = False) -> bool:
         disk_name = self.__normalizate_disk_name(disk_name)
 
-        sys_drive = os.environ.get('SystemDrive')
+        sys_drive = self.get_windows_disk()
 
         if sys_drive == disk_name:
             raise WindowsDiskFormatError("You can not format main Windows disk")
@@ -456,3 +555,18 @@ class MemoryStorage:
             del self.folders[pointer]
         else:
             del self.disks[pointer]
+
+@dataclass(frozen=True)
+class DiskInfo:
+    drive: str
+    owner: str
+    is_formatted: bool
+    drive_opts: str | None
+    fs: str | None
+    label: str | None
+    total_bytes: int | None
+    used_bytes: int | None
+    free_bytes: int | None
+    used_percent: float | None
+    readonly: bool | None
+    mountpoint: str | None

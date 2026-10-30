@@ -71,6 +71,7 @@ MIT
 1. MemoryObject. Just dict with dicts
 2. MemoryPythonFolder. Virtual file system, where you can save only string data types
 3. MemoryStorage. Class where access create folders and disks in ram and see it in explorer
+4. DiskInfo. Just dataclass, has no methods
 
 ### MemoryObject methods
 
@@ -96,3 +97,8 @@ MIT
 6. create_disk_winfspy. Create disk in RAM using WinFsPy
 7. create_folder_winfspy. Create folder in RAM using WinFsPy
 8. remove_storage_winfspy. Remove storage, that created using WinFsPy
+9. get_windows_disk. Get Windows disk
+10. check_disk_formatted. Check disk formatted or not
+11. get_drive_label. Get disk label
+12. is_drive_readonly. Check disk read-only or not
+13. get_disk_info. Get info about disk
