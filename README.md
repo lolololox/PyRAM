@@ -33,7 +33,7 @@ Project target it is:
 - ImDisk
 - WinFs(Not strictly required, but necessary for the library to additional function)
 - WinFsPy(Not strictly required, but necessary for the library to additional features)
-- Python 3.12 and higer
+- Python 3.13 and higer
 
 RAM disk operations may require administrator privileges.
 
