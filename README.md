@@ -21,16 +21,16 @@ Project target it is:
 - Windows
 - Python
 - ImDisk
-- RamDisk
 - WinFs(Not strictly required, but necessary for the library to additional function)
 - WinFsPy(Not strictly required, but necessary for the library to additional features)
-- Python package dependencies required by PyRAM
+- Python 3.12 and higer
 
 RAM disk operations may require administrator privileges.
 
 ## Installation
 
-Install ImDisk with RamDisk and the required Python dependencies before using PyRAM.
+Install ImDisk and the required Python dependencies before using PyRAM.
+In short time meybe you can install PyRAM from PaPi(Pip install PyRAMObjects)
 
 ## Quick Start
 
@@ -51,6 +51,9 @@ storage.create_disk_ramdisk(
 
 # Remove the RAM disk
 storage.remove_disk_ramdisk(disk_name="X:")
+
+with MemoryStorage(cleanup_on_exit=True) as storage1: # cleaning all PyRAM disks when app closing, becouse cleanup_on_exit=True
+    storage1.create_disk_imdisk(disk_name="K:", memory_mb_size=512)
 ```
 
 ## Usage Notes
@@ -70,7 +73,7 @@ MIT
 
 1. MemoryObject. Just dict with dicts
 2. MemoryPythonFolder. Virtual file system, where you can save only string data types
-3. MemoryStorage. Class where access create folders and disks in ram and see it in explorer
+3. MemoryStorage. Class where access create folders(experimental only WinFsPy) and disks in ram and see it in explorer
 4. DiskInfo. Just dataclass, has no methods
 
 ### MemoryObject methods
@@ -90,8 +93,8 @@ MIT
 ### MemoryStorage methods
 
 1. get_all_drives. Get all drives
-2. create_disk_ramdisk. Create disk in RAM using RamDisk
-3. remove_disk_ramdisk. Delete disk, that created using RamDisk
+2. remove_disk_imdisk. Create disk in RAM using ImDisk
+3. remove_disk_imdisk. Delete disk, that created using ImDisk
 4. format_ramdisk. Format disk
 5. get_all_disks/get_all_folders/get_all_processes. Get all disks/folders/processes
 6. create_disk_winfspy. Create disk in RAM using WinFsPy

@@ -1,4 +1,4 @@
-from exceptions import (
+from PyRAMErrors import (
     PyRAMError, ComponentNotInstalledError,
     DiskAlreadyExistsError, DiskNotFoundError,
     DiskCreationError, IncorrectSymbolInPath,
@@ -8,7 +8,8 @@ from exceptions import (
     FolderNotAlreadyExistsError, ProcessAlreadyExistsError,
     ProcessNotAlreadyExistsError, WindowsDiskDeleteError,
     ZeroOrNegativeRAMError, FailedToFormatDisk,
-    WindowsDiskFormatError, ForeignDiskError, ImputError
+    WindowsDiskFormatError, ForeignDiskError, InputError,
+    IncorrectDiskName
 )
 from typing import Any
 from pathlib import Path
@@ -20,9 +21,12 @@ from warnings import deprecated
 import warnings
 from dataclasses import dataclass
 import ctypes
+import shutil
+import re
 
 MARKER = ".pyram_owned"
 FILE_READ_ONLY_VOLUME = 0x00080000
+IMDISK_UNIT_MIN, IMDISK_UNIT_MAX = 100, 199
 
 if platform.system() != "Windows":
     raise RuntimeError("Library only for Windows")
@@ -40,13 +44,16 @@ except(ImportError, ImportWarning):
     warnings.warn("Warning: winfspy not installed!\nPls download winfspy on site https://winfsp.dev/ and download library winfspy.", RuntimeWarning)
     winfspy_installed = False
 
-try:
-    import ramdisk
-    from ramdisk import create_hd, remove_hd
-    ramdisk_installed = True
-except(ImportError, ImportWarning):
-    warnings.warn("Warning: ramdisk not installed!\nPls download ramdisk", RuntimeWarning)
-    ramdisk_installed = False
+def _find_imdisk() -> str:
+    exe = shutil.which("imdisk")
+    if exe:
+        return exe
+    for base in (os.environ.get("SystemRoot", r"C:\Windows"),):
+        for sub in ("System32", "Sysnative"):
+            p = os.path.join(base, sub, "imdisk.exe")
+            if os.path.isfile(p):
+                return p
+    raise ComponentNotInstalledError("ImDisk not found. Install ImDisk Toolkit: https://sourceforge.net/projects/imdisk-toolkit/")
 
 class MemoryObject:
     def __init__(self):
@@ -225,26 +232,31 @@ class MemoryPythonFolder:
             raise FileNotFound(f"File '{path}' not found")
 
 class MemoryStorage:
-    def __init__(self):
+    def __init__(self, cleanup_on_exit: bool = False):
+        self.ImDiskPath = _find_imdisk()
+        self._cleanup_on_exit = cleanup_on_exit
         self.disks = {}
         self.folders = {}
         self.process = {}
 
         for d in self.get_all_drives():
             drive = d.rstrip("\\")
-            self.disks[drive] = "Record restored, between sessions" if self._is_owned(drive) else None
+            self.disks[drive] = self._unit_by_letter(disk_name=drive)
 
     def _is_owned(self, drive: str) -> bool:
-        try:
-            return os.path.isfile(os.path.join(drive + "\\", MARKER))
-        except OSError:
+        unit = self._unit_by_letter(drive)
+        if unit is None:
             return False
+        if not (IMDISK_UNIT_MIN <= unit <= IMDISK_UNIT_MAX):
+            return False
+
+        return True
 
     def check_disk_formatted(self, disk_name: str) -> bool:
         if psutil_instaled == False:
             raise ComponentNotInstalledError("Psutil not installed, please do it")
 
-        disk_name = self.__normalizate_disk_name(disk_name)
+        disk_name = self._normalizate_disk_name(disk_name)
 
         partitions = psutil.disk_partitions(all=True)
         
@@ -257,13 +269,25 @@ class MemoryStorage:
                     
         return False
 
-    def __normalizate_disk_name(self, name: str) -> str:
+    def _normalizate_disk_name(self, name: str) -> str:
+        if not isinstance(name, str):
+            raise InputError("Disk name must be string!")
+
         name = name.upper()
 
         if not name.endswith(":"):
             name += ":"
 
         return name
+
+    def _formatdr(self, disk_name: str) -> bool:
+        success = re.fullmatch(r"[A-Z]:?", disk_name) and len(disk_name) == 2
+        return bool(success)
+
+    def _imdisk(self, *args, timeout=60) -> subprocess.CompletedProcess[str]:
+        exe = self.ImDiskPath
+        r = subprocess.run([exe, *args], capture_output=True, text=True, timeout=timeout)
+        return r
 
     def get_all_drives(self) -> list:
         drives = os.listdrives()
@@ -273,7 +297,7 @@ class MemoryStorage:
         return os.environ.get('SystemDrive')
 
     def get_disk_info(self, disk_name: str) -> dict:
-        disk_name = self.__normalizate_disk_name(name=disk_name)
+        disk_name = self._normalizate_disk_name(name=disk_name)
 
         owner = None
         is_formatted = None
@@ -293,10 +317,10 @@ class MemoryStorage:
 
         if self.get_windows_disk() == disk_name:
             owner = "System"
-        elif disk_value is None or not self.check_disk_formatted(disk_name=disk_name):
-            owner = "Unknown"
         elif isinstance(disk_value, subprocess.Popen) or self._is_owned(drive=disk_name):
             owner = "PyRAM"
+        else:
+            owner = "Unknown"
 
         is_formatted = self.check_disk_formatted(disk_name=disk_name)
         
@@ -361,11 +385,34 @@ class MemoryStorage:
         else:
             return None
 
-    def create_disk_ramdisk(self, disk_name: str = "Z:", memory_mb_size: int = 2048, file_system: str = "ntfs") -> bool:
-        disk_name = self.__normalizate_disk_name(disk_name)
+    def _imdisk_units(self) -> list[int]:
+        r = self._imdisk("-l")
+        return [int(n) for n in re.findall(r"ImDisk(\d+)", r.stdout)]
 
-        if ramdisk_installed == False:
-            raise ComponentNotInstalledError("RamDisk not installed!")
+    def _free_unit(self) -> int:
+        used = set(self._imdisk_units())
+        for u in range(IMDISK_UNIT_MIN, IMDISK_UNIT_MAX + 1):
+            if u not in used:
+                return u
+        raise PyRAMError("No free ImDisk units in PyRAM range")
+
+    def _unit_by_letter(self, disk_name: str) -> int | None:
+        target = self._normalizate_disk_name(disk_name)
+        for u in self._imdisk_units():
+            if self._letter_by_unit(u) == target:
+                return u
+        return None
+
+    def _letter_by_unit(self, unit: int) -> str | None:
+        r = self._imdisk("-l", "-u", str(unit))
+        m = re.search(r"^Drive letter:\s*([A-Za-z])\s*$", r.stdout, re.MULTILINE)
+        return m.group(1).upper() + ":" if m else None
+
+    def create_disk_imdisk(self, disk_name: str = "Z:", memory_mb_size: int = 2048, file_system: str = "ntfs") -> bool:
+        disk_name = self._normalizate_disk_name(disk_name)
+
+        if self._formatdr(disk_name=disk_name) == False:
+            raise IncorrectDiskName(f"Disk name not correct: '{disk_name}'")
 
         if disk_name in self.disks:
             raise DiskAlreadyExistsError(f"Disk: '{disk_name.rstrip(":")}' already exists")
@@ -383,104 +430,78 @@ class MemoryStorage:
         if memory_mb_size <= 0:
             raise ZeroOrNegativeRAMError(f"RAM is zero or negative: '{memory_mb_size}'")
 
-        try:
-            success = create_hd(size_in_megabyte=memory_mb_size, drive_letter=disk_name, fs=file_system)
-        except Exception as e:
-            raise PyRAMError(f"Somethink went wrong!\n{e}")
+        unit = self._free_unit()
+        r = self._imdisk(
+            "-a",
+            "-u", str(unit),
+            "-s", f"{memory_mb_size}M",
+            "-m", disk_name,
+            "-p", f"/fs:{file_system} /q /y /v:PyRAM",
+        )
 
-        success_code = bool(success)
+        if r.returncode != 0:
+            raise PyRAMError(f"imdisk failed ({r.returncode}): {r.stderr or r.stdout}")
 
-        if success_code:
-            self.disks[disk_name] = success
+        self.disks[disk_name] = unit 
 
-        if not self.format_ramdisk(disk_name, file_system, forse_check=True):
+        if not self.format_imdisk(disk_name, file_system):
             warnings.warn(f"Failed to format RAM disk '{disk_name.rstrip(":")}'\nYou need to run the process as an administrator.", RuntimeWarning)
-        else:
-            Path(disk_name + "\\", MARKER).write_text("created by PyRAM")
 
-        return success_code
+        return True
 
-    def remove_disk_ramdisk(self, disk_name: str, force: bool = True, forse_check: bool = False) -> bool:
-        disk_name = self.__normalizate_disk_name(disk_name)
+    def remove_disk_imdisk(self, disk_name: str, force: bool = True) -> bool:
+        disk_name = self._normalizate_disk_name(disk_name)
 
-        if ramdisk_installed == False:
-            raise ComponentNotInstalledError("RamDisk not installed!")
-
-        if self.disks.get(disk_name) == None:
-            if not self.check_disk_formatted(disk_name=disk_name) and forse_check == False:
-                accept = input(f"Disk not formatted, detele it? n | y ")
-                if accept.lower() == "n":
-                    return
-                elif accept.lower() == "y":
-                    pass
-                else:
-                    raise ImputError("Please input correct answer")
-
-            elif not self.check_disk_formatted(disk_name=disk_name) and forse_check == True:
-                pass
-
-            else:
-                raise ForeignDiskError(f"Disk {disk_name.rstrip(":")} was not created by PyRAM")
-
-        if not disk_name in self.disks:
-            raise DiskNotAlreadyExistsError(f"Disk: '{disk_name.rstrip(":")}' not already exists")
+        if self._formatdr(disk_name=disk_name) == False:
+            raise IncorrectDiskName(f"Disk name not correct: '{disk_name}'")
 
         sys_drive = self.get_windows_disk()
 
         if sys_drive == disk_name:
             raise WindowsDiskDeleteError("You can not delete main Windows disk")
 
-        try:
-            success = remove_hd(drive_letter=disk_name, force=force)
-        except Exception as e:
-            raise PyRAMError(f"Somethink went wrong!\n{e}")
+        unit = self._unit_by_letter(disk_name)
+        if unit is None:
+            raise DiskNotAlreadyExistsError(f"Disk '{disk_name.rstrip(":")}' not found in ImDisk")
+        if not (IMDISK_UNIT_MIN <= unit <= IMDISK_UNIT_MAX):
+            raise ForeignDiskError(f"Disk '{disk_name.rstrip(":")}' was not created by PyRAM")
 
-        success_code = bool(success)
+        r = self._imdisk("-D" if force else "-d", "-u", str(unit))
+        if r.returncode != 0:
+            raise PyRAMError(f"imdisk failed ({r.returncode}): {r.stderr or r.stdout}")
 
-        if success_code:
-            del self.disks[disk_name]
+        self.disks.pop(disk_name, None)
 
-        return success_code
+        return True
 
-    def format_ramdisk(self, disk_name: str, file_system: str = "NTFS", forse_check: bool = False) -> bool:
-        disk_name = self.__normalizate_disk_name(disk_name)
+    def format_imdisk(self, disk_name: str, file_system: str = "NTFS") -> bool:
+        disk_name = self._normalizate_disk_name(disk_name)
 
-        sys_drive = self.get_windows_disk()
+        if self._formatdr(disk_name=disk_name) == False:
+            raise IncorrectDiskName(f"Disk name not correct: '{disk_name}'")
 
-        if sys_drive == disk_name:
+        if disk_name == self.get_windows_disk():
             raise WindowsDiskFormatError("You can not format main Windows disk")
 
-        if self.disks.get(disk_name) == None:
-            if not self.check_disk_formatted(disk_name=disk_name) and forse_check == False:
-                accept = input(f"Disk not formatted, detele it? n | y ")
-                if accept.lower() == "n":
-                    return
-                elif accept.lower() == "y":
-                    pass
-                else:
-                    raise ImportError("Please input correct answer")
-
-            else:
-                raise ForeignDiskError(f"Disk {disk_name.rstrip(":")} was not created by PyRAM")
-
-        if file_system.upper() not in {"NTFS", "FAT32", "EXFAT"}:
+        fs = file_system.upper()
+        if fs not in {"NTFS", "FAT32", "EXFAT"}:
             raise ValueError("Unsupported file system")
 
-        result = subprocess.run(
-            [
-                "format.com",
-                disk_name,
-                f"/FS:{file_system.upper()}",
-                "/Q",
-                "/Y",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            shell=False,
-        )
+        unit = self._unit_by_letter(disk_name)
+        if unit is None:
+            raise DiskNotAlreadyExistsError(f"Disk {disk_name.rstrip(':')} not found in ImDisk")
+        if not (IMDISK_UNIT_MIN <= unit <= IMDISK_UNIT_MAX):
+            raise ForeignDiskError(f"Disk {disk_name.rstrip(':')} was not created by PyRAM")
 
-        return result.returncode == 0
+        r = subprocess.run(
+            ["format.com", disk_name, f"/FS:{fs}", "/Q", "/Y", "/V:PyRAM"],
+            capture_output=True, text=True, timeout=60,
+        )
+        if r.returncode != 0:
+            self._imdisk("-D", "-u", str(unit))
+            raise PyRAMError(f"format failed ({r.returncode}): {r.stdout or r.stderr}")
+
+        return True
 
     def get_all_disks(self) -> dict:
         return self.disks
@@ -532,7 +553,7 @@ class MemoryStorage:
     @deprecated("Experimental method, not stable. Please use ramdisk methods")
     def remove_storage_winfspy(self, pointer: str) -> bool:
         if len(pointer) <= 2:
-            pointer = self.__normalizate_disk_name(pointer)
+            pointer = self._normalizate_disk_name(pointer)
 
         if winfspy_installed == False:
             raise ComponentNotInstalledError("winfspy not installed!")
@@ -555,6 +576,30 @@ class MemoryStorage:
             del self.folders[pointer]
         else:
             del self.disks[pointer]
+
+    def _owned_disks(self) -> list[str]:
+        result = []
+        for u in self._imdisk_units():
+            if IMDISK_UNIT_MIN <= u <= IMDISK_UNIT_MAX:
+                letter = self._letter_by_unit(u)
+                if letter:
+                    result.append(letter)
+        return result
+
+    def close(self, force: bool = False) -> None:
+        for drive in self._owned_disks():
+            try:
+                self.remove_disk_imdisk(drive, force=force)
+            except PyRAMError as e:
+                warnings.warn(f"Could not remove {drive}: {e}", RuntimeWarning)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._cleanup_on_exit:
+            self.close(force=True)
+        return False
 
 @dataclass(frozen=True)
 class DiskInfo:
