@@ -252,6 +252,12 @@ class MemoryStorage:
 
         return True
 
+    def _is_admin(self) -> bool:
+        try:
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            return False
+
     def check_disk_formatted(self, disk_name: str) -> bool:
         if psutil_instaled == False:
             raise ComponentNotInstalledError("Psutil not installed, please do it")

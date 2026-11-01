@@ -7,6 +7,16 @@ Project target it is:
 2. Do more stable than original library
 3. Give additional functional than original library
 
+> [!CAUTION]
+> **IMPORTANT:**
+>
+> 1. Early version of the library, bugs are possible
+> 2. Disks may be removed with a delay
+> 3. API can changes every update, please check actual documentation
+> 4. Administrator privileges are required for the library to function properly
+> 5. ONLY Windows
+> 6. PyRAM only manages disks it created (ImDisk units 100-199) and refuses to touch others.
+
 ## Features
 
 - Create RAM disks.
