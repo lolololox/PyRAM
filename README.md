@@ -33,14 +33,14 @@ Project target it is:
 - ImDisk
 - WinFs(Not strictly required, but necessary for the library to additional function)
 - WinFsPy(Not strictly required, but necessary for the library to additional features)
-- Python 3.13 and higer
+- Python 3.13 and higher
 
 RAM disk operations may require administrator privileges.
 
 ## Installation
 
 Install ImDisk and the required Python dependencies before using PyRAM.
-In short time meybe you can install PyRAM from PaPi(Pip install PyRAMObjects)
+You can install library using pip install PyRAMObjects
 
 ## Quick Start
 
@@ -62,7 +62,7 @@ storage.create_disk_ramdisk(
 # Remove the RAM disk
 storage.remove_disk_ramdisk(disk_name="X:")
 
-with MemoryStorage(cleanup_on_exit=True) as storage1: # cleaning all PyRAM disks when app closing, becouse cleanup_on_exit=True
+with MemoryStorage(cleanup_on_exit=True) as storage1: # cleaning all PyRAM disks when app closing, because cleanup_on_exit=True
     storage1.create_disk_imdisk(disk_name="K:", memory_mb_size=512)
 ```
 

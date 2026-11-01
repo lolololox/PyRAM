@@ -420,7 +420,7 @@ class MemoryStorage:
         if self._formatdr(disk_name=disk_name) == False:
             raise IncorrectDiskName(f"Disk name not correct: '{disk_name}'")
 
-        if disk_name in self.disks:
+        if os.path.exists(disk_name + "\\") or disk_name in self.disks:
             raise DiskAlreadyExistsError(f"Disk: '{disk_name.rstrip(":")}' already exists")
 
         if psutil_instaled == True:
