@@ -319,7 +319,10 @@ class MemoryStorage:
         try:
             disk_value = self.disks[disk_name]
         except(KeyError):
-            raise DiskNotAlreadyExistsError(f"Disk: '{disk_name.rstrip(":")}' not already exists")
+            try:
+                disk_value = self.process[disk_name]
+            except(KeyError):
+                raise DiskNotAlreadyExistsError(f"Disk: '{disk_name.rstrip(":")}' not already exists")
 
         if self.get_windows_disk() == disk_name:
             owner = "System"
@@ -520,6 +523,10 @@ class MemoryStorage:
 
     @deprecated("Experimental method, not stable. Please use ramdisk methods")
     def create_disk_winfspy(self, disk_name: str = "Z:") -> subprocess.Popen:
+        disk_name = self._normalizate_disk_name(disk_name)
+        if self._formatdr(disk_name=disk_name) == False:
+            raise IncorrectDiskName(f"Disk name not correct: '{disk_name}'")
+
         if winfspy_installed == False:
             raise ComponentNotInstalledError("winfspy not installed!")
 
@@ -530,7 +537,11 @@ class MemoryStorage:
             sys.executable,
             "-m", "winfspy.memfs",
             disk_name,
-        ])
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+        )
 
         self.process[disk_name] = process
 
@@ -549,8 +560,12 @@ class MemoryStorage:
         process = subprocess.Popen([
             sys.executable,
             "-m", "winfspy.memfs",
-            clead_path,
-        ])
+            clead_path,   
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+        )
 
         self.process[clead_path] = process
 
@@ -560,11 +575,13 @@ class MemoryStorage:
     def remove_storage_winfspy(self, pointer: str) -> bool:
         if len(pointer) <= 2:
             pointer = self._normalizate_disk_name(pointer)
+            if self._formatdr(disk_name=pointer) == False:
+                raise IncorrectDiskName(f"Disk name not correct: '{pointer}'")
 
         if winfspy_installed == False:
             raise ComponentNotInstalledError("winfspy not installed!")
 
-        if pointer not in self.disks and pointer not in self.folders:
+        if pointer not in self.process:
             raise ProcessNotAlreadyExistsError(f"Process: {pointer.rstrip(":")} not already exists")
 
         process: subprocess.Popen = self.process.get(pointer)
@@ -578,10 +595,9 @@ class MemoryStorage:
         except subprocess.TimeoutExpired:
             process.kill()
 
-        if len(pointer) >= 2:
-            del self.folders[pointer]
-        else:
-            del self.disks[pointer]
+        self.process[pointer]
+
+        return True
 
     def _owned_disks(self) -> list[str]:
         result = []
